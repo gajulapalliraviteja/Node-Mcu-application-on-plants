@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Plant Health Monitoring</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: Arial, sans-serif; background: #f4f4f4; text-align: center; padding: 20px; }
+  h2 { color: green; }
+  .card { background: white; padding: 15px; margin: 10px auto; border-radius: 10px; width: 95%; max-width: 500px; box-shadow: 0 0 6px #999; }
+  .row { display: flex; justify-content: space-around; font-size: 16px; font-weight: bold; }
+  .value { color: #000; }
+  .range { color: #555; }
+  .bulb { width: 70px; height: 70px; border-radius: 50%; margin: 15px auto; background: gray; transition: 0.3s; }
+  .green { background: green; box-shadow: 0 0 15px green; }
+  .red { background: red; box-shadow: 0 0 15px red; }
+  select, button { padding: 8px; font-size: 16px; margin-left: 5px; }
+  #alertMessage, #updateStatus { font-weight: bold; margin-top: 10px; }
+  #updateStatus { color: blue; }
+</style>
+</head>
+<body>
+
+<h2>🌱 Plant Health Dashboard</h2>
+
+<div class="card">
+  Select Plant:
+  <select id="plantSelect">
+    <option value="1">Grapes</option>
+    <option value="2">Dragon Fruit</option>
+    <option value="3">Coconut</option>
+  </select>
+  <button id="updateBtn" onclick="updatePlant()">Update Plant</button>
+  <div id="updateStatus">--</div>
+</div>
+
+<div class="card">🌾 Selected Plant: <span id="plantName">--</span></div>
+
+<div class="card">
+  <div class="row">
+    <div>💧 Soil</div>
+    <div class="value"><span id="soil">--</span> %</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="row">
+    <div>🌡 Temp</div>
+    <div class="value"><span id="temp">--</span> °C</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="row">
+    <div>💦 Hum</div>
+    <div class="value"><span id="hum">--</span> %</div>
+  </div>
+</div>
+
+<div class="card"><div id="alertMessage">Waiting for Data...</div></div>
+<div id="bulb" class="bulb"></div>
+
+<script>
+const channelID = 3221650;
+const READ_API_KEY = "TZJDWF17XSFDDKSQ";
+const WRITE_API_KEY = "JXHWR3ZTEY21XS60";
+
+function updateData() {
+  fetch(`https://api.thingspeak.com/channels/${channelID}/feeds.json?results=1&status=true&api_key=${READ_API_KEY}`)
+    .then(res => res.json())
+    .then(json => {
+      const feed = json.feeds[0];
+      const alertMsg = json.channel.status || "";
+      const bulb = document.getElementById("bulb");
+      const alertDisplay = document.getElementById("alertMessage");
+
+      // Check if data is fresh (within 45 seconds)
+      const lastUpdate = new Date(feed.created_at);
+      const diffSeconds = (new Date() - lastUpdate) / 1000;
+
+      if (diffSeconds > 45) {
+        bulb.className = "bulb"; // Gray/No color
+        alertDisplay.innerText = "Status: ESP32 Offline";
+        document.getElementById("soil").innerText = "--";
+        document.getElementById("temp").innerText = "--";
+        document.getElementById("hum").innerText  = "--";
+      } 
+      else if (alertMsg === "INSERT SENSOR") {
+        bulb.className = "bulb"; // Gray/No color
+        alertDisplay.innerText = "Health Alert: insert soil moisture sensor into the soil";
+        document.getElementById("soil").innerText = "0";
+      }
+      else {
+        document.getElementById("soil").innerText = feed.field1;
+        document.getElementById("temp").innerText = feed.field2;
+        document.getElementById("hum").innerText  = feed.field3;
+        alertDisplay.innerText = "Health Alert: " + alertMsg;
+
+        if (alertMsg === "Crop is healthy") bulb.className = "bulb green";
+        else bulb.className = "bulb red";
+      }
+    });
+}
+
+async function updatePlant() {
+  let plant = document.getElementById("plantSelect").value;
+  document.getElementById("updateStatus").innerText = "Updating...";
+  await fetch(`https://api.thingspeak.com/update?api_key=${WRITE_API_KEY}&field4=${plant}`);
+  setTimeout(() => { document.getElementById("updateStatus").innerText = "Ready"; }, 15000);
+}
+
+setInterval(updateData, 5000);
+updateData();
+</script>
+</body>
+</html>

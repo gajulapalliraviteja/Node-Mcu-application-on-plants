@@ -1,0 +1,110 @@
+#include <WiFi.h>
+#include <WebServer.h>
+#include <Preferences.h>
+#include <ThingSpeak.h>
+#include <DHT.h>
+
+#define DHTPIN 4
+#define DHTTYPE DHT11
+#define LED_PIN 5
+#define SOIL_PIN 34
+#define RESET_PIN 0
+
+unsigned long channelID = 3221650;
+const char* readAPIKey  = "TZJDWF17XSFDDKSQ";
+const char* writeAPIKey = "JXHWR3ZTEY21XS60";
+
+WebServer server(80);
+WiFiClient client;
+Preferences prefs;
+DHT dht(DHTPIN, DHTTYPE);
+
+struct PlantRange {
+  float tempMin, tempMax, humMin, humMax, soilMin, soilMax;
+};
+
+// Grapes, Dragon Fruit, Coconut [cite: 5]
+PlantRange plants[3] = {
+  {15, 35, 50, 70, 60, 70},
+  {18, 35, 60, 80, 40, 60},
+  {27, 32, 70, 90, 70, 85}
+};
+
+void startSoftAP() {
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP("ESP32_PLANT_SETUP");
+  server.on("/", []() {
+    server.send(200, "text/html", "<form action='/save' method='POST'>SSID:<br><input name='ssid'><br>Pass:<br><input name='pass' type='password'><br><input type='submit' value='Save'></form>");
+  });
+  server.on("/save", HTTP_POST, []() {
+    prefs.begin("wifi", false);
+    prefs.putString("ssid", server.arg("ssid"));
+    prefs.putString("pass", server.arg("pass"));
+    prefs.end();
+    server.send(200, "text/html", "Saved. Restarting...");
+    delay(1000);
+    ESP.restart();
+  });
+  server.begin();
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(RESET_PIN, INPUT_PULLUP);
+  dht.begin();
+  prefs.begin("wifi", true);
+  String ssid = prefs.getString("ssid", "");
+  String pass = prefs.getString("pass", "");
+  prefs.end();
+
+  if (ssid != "") {
+    WiFi.begin(ssid.c_str(), pass.c_str());
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) delay(500);
+  }
+
+  if (WiFi.status() == WL_CONNECTED) ThingSpeak.begin(client);
+  else startSoftAP();
+}
+
+void loop() {
+  if (WiFi.getMode() == WIFI_AP) { server.handleClient(); return; }
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+  int soilRaw = analogRead(SOIL_PIN); [cite: 22]
+
+  String alert = "";
+  float soil = map(soilRaw, 3600, 1400, 0, 100);
+  soil = constrain(soil, 0, 100);
+
+  // Air detection: if raw value is very high (dry air) [cite: 22]
+  if (soilRaw > 3550) {
+    alert = "INSERT SENSOR";
+    Serial.println("ALERT: place soil moisture sensor in the pot");
+  } else {
+    int pType = (int)ThingSpeak.readFloatField(channelID, 4, readAPIKey);
+    if (pType < 1 || pType > 3) pType = 1;
+    
+    PlantRange pr = plants[pType - 1]; [cite: 6]
+    if (t < pr.tempMin) alert += "Temp low. ";
+    if (t > pr.tempMax) alert += "Temp high. ";
+    if (h < pr.humMin)  alert += "Hum low. ";
+    if (h > pr.humMax)  alert += "Hum high. ";
+    if (soil < pr.soilMin) alert += "Soil dry. ";
+    if (soil > pr.soilMax) alert += "Soil wet. ";
+    if (alert == "") alert = "Crop is healthy"; [cite: 11]
+  }
+
+  digitalWrite(LED_PIN, (alert == "Crop is healthy" || alert == "INSERT SENSOR") ? LOW : HIGH); [cite: 24]
+
+  ThingSpeak.setField(1, soil);
+  ThingSpeak.setField(2, t);
+  ThingSpeak.setField(3, h);
+  ThingSpeak.setStatus(alert);
+  ThingSpeak.writeFields(channelID, writeAPIKey); [cite: 27]
+
+  delay(15000); 
+}
