@@ -1,0 +1,108 @@
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <TinyGPS++.h>
+
+// Wi-Fi & Telegram Credentials
+const char* WIFI_SSID     = "realme P1 Pro 5G";
+const char* WIFI_PASSWORD = "teja123@";
+const String BOT_TOKEN    = "8056436628:AAFJXICQ5NPrEnMjyy8z2x2wivozN5Zrpgo";
+//
+
+// Users (Arrays)
+const String chatIDs[] = {"7386475223", "7569923246", "8977915708"};
+const String phoneNums[] = {"+917386475223","+917569923246","+918977915708"}; // ఇక్కడ SMS వెళ్లాల్సిన నంబర్లు పెట్టుకోండి
+//
+
+// Objects & Timers
+TinyGPSPlus gps;
+HardwareSerial A9G_Serial(1); // RX=7, TX=6
+unsigned long lastSend = 0;
+const long interval = 30000; // 30 సెకన్లకు ఒకసారి
+//
+
+void setup() {
+  Serial.begin(115200);
+  A9G_Serial.begin(9600, SERIAL_8N1, 7, 6); 
+  delay(1000);
+  
+  A9G_Serial.println("AT+GPS=1"); // Turn ON GPS
+
+  // Connect WiFi
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
+  Serial.println("\nWiFi Connected");
+}
+
+void loop() {
+  // 1. Read GPS Data continuously
+  while (A9G_Serial.available() > 0) {
+    gps.encode(A9G_Serial.read());
+  }
+
+  // 2. Timer-based Alert System
+  if (millis() - lastSend > interval) {
+    // Check if GPS has a strong lock on location
+    if (gps.location.isValid()) {
+      float currentLat = gps.location.lat();
+      float currentLng = gps.location.lng();
+
+      Serial.println("Location Locked! Sending Alerts...");
+
+      // Send to all Telegram Users
+      for (int i = 0; i < 3; i++) {
+        sendTelegramLocation(chatIDs[i], currentLat, currentLng);
+      }
+
+      // Send to all SMS numbers
+      for (int j = 0; j < 1; j++) {
+        sendSMSAlert(phoneNums[j], currentLat, currentLng);
+      }
+
+    } else {
+      Serial.println("Waiting for GPS Fix...");
+    }
+    lastSend = millis(); // Reset timer regardless of fix
+  }
+}
+
+// ---- Functions manaki use telegram and sms ki ----
+
+void sendTelegramLocation(String chatID, float lat, float lng) {
+  WiFiClientSecure client;
+  client.setInsecure();
+  if (!client.connect("api.telegram.org", 443)) 
+  serial.print("Telegram web not working! Try to reload.")
+  return; // Fail silently to save time
+
+  String url = "/bot" + BOT_TOKEN + "/sendLocation?chat_id=" + chatID +
+               "&latitude=" + String(lat, 6) + "&longitude=" + String(lng, 6);
+
+  client.println("GET " + url + " HTTP/1.1");
+  client.println("Host: api.telegram.org");
+  client.println("Connection: close");
+  client.println();
+  delay(100);
+  Serial.println("Telegram sent to: " + chatID);
+}
+
+void sendSMSAlert(String phone, float lat, float lng) {
+  A9G_Serial.println("AT+CMGF=1"); // Set SMS text mode
+  delay(500);
+  
+  A9G_Serial.print("AT+CMGS=\"");
+  A9G_Serial.print(phone);
+  A9G_Serial.println("\"");
+  delay(500);
+
+  // Emergency Message Construction
+  A9G_Serial.print("I Need Your help urgently I am in danger!!!.This is my location and i am unable to use my phone and also i am helpless!! ");
+  A9G_Serial.print("https://maps.google.com/?q="); // Best URL for Google Maps
+  A9G_Serial.print(lat, 6);
+  A9G_Serial.print(",");
+  A9G_Serial.print(lng, 6);
+  
+  delay(100);
+  A9G_Serial.write(26); // Send Ctrl+Z to finalize message
+  Serial.println("SMS sent to: " + phone);
+}

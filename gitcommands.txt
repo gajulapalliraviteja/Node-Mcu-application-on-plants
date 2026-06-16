@@ -1,0 +1,7 @@
+1.git init = initialize your git (only first time) after that opt
+2.git add . = request for the adding of files
+3.git commit -m "message for commit(changes)" = shows on the                           file name what changes are done.
+4.git push origin main = pushes all the files
+5.git push = status for checking "Everithing is up to date."
+6.git log = all commands excecuted from the start. 
+7.git status = 
